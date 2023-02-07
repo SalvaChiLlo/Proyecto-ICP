@@ -1,0 +1,409 @@
+{
+  "Parameters": {
+    "KeyPairName": {
+      "Description": "The EC2 Key Pair name",
+      "Type": "String"
+    },
+    "UserID": {
+      "Description": "If you are alucloud07 this means that UserID should be 07",
+      "Type": "String"
+    }
+  },
+
+  "Mappings": {
+    "AWSInstanceType2Arch": {
+      "t3.small": { "Arch": "HVM64" }
+    },
+
+    "FrontendAWSRegionArch2AMI": {
+      "us-east-1": { "HVM64": "ami-054371e5383487ae0" }
+    },
+
+    "BackendAWSRegionArch2AMI": {
+      "us-east-1": { "HVM64": "ami-054371e5383487ae0" }
+    }
+  },
+
+  "Resources": {
+    "MainEC2SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Open ports 80 and 22",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "VpcId": "vpc-83a213fb"
+      }
+    },
+
+    "FrontendAutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "VPCZoneIdentifier": [
+          "subnet-2bfb6c4f",
+          "subnet-c2f25afd",
+          "subnet-432a9408"
+        ],
+        "LaunchConfigurationName": { "Ref": "FrontendLaunchConfig" },
+        "MinSize": "1",
+        "MaxSize": "2",
+        "DesiredCapacity": "1",
+        "TargetGroupARNs": [{ "Ref": "FrontendALBTargetGroup" }]
+      },
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT45M"
+        }
+      },
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": "1",
+          "MaxBatchSize": "1",
+          "PauseTime": "PT15M",
+          "WaitOnResourceSignals": "true"
+        }
+      }
+    },
+    "FrontendScaleOutPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": { "Ref": "FrontendAutoScalingGroup" },
+        "Cooldown": "120",
+        "ScalingAdjustment": "1"
+      }
+    },
+
+    "FrontendCPUAlarmHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "70",
+        "AlarmDescription": "Alarm if average CPU > 70% for 1 period of 60 seconds",
+        "Period": "60",
+        "AlarmActions": [{ "Ref": "FrontendScaleOutPolicy" }],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": { "Ref": "FrontendAutoScalingGroup" }
+          }
+        ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+
+    "FrontendScaleInPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": { "Ref": "FrontendAutoScalingGroup" },
+        "Cooldown": "120",
+        "ScalingAdjustment": "-1"
+      }
+    },
+
+    "FrontendCPUAlarmLow": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "2",
+        "Statistic": "Average",
+        "Threshold": "20",
+        "AlarmDescription": "Alarm if average CPU < 20% for 2 periods of 60 seconds",
+        "Period": "60",
+        "AlarmActions": [{ "Ref": "FrontendScaleInPolicy" }],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": { "Ref": "FrontendAutoScalingGroup" }
+          }
+        ],
+        "ComparisonOperator": "LessThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+
+    "FrontendLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": "true",
+        "ImageId": {
+          "Fn::FindInMap": [
+            "FrontendAWSRegionArch2AMI",
+            { "Ref": "AWS::Region" },
+            { "Fn::FindInMap": ["AWSInstanceType2Arch", "t3.small", "Arch"] }
+          ]
+        },
+        "SecurityGroups": [{ "Ref": "MainEC2SecurityGroup" }],
+        "KeyName": { "Ref": "KeyPairName" },
+        "InstanceType": "t3.small",
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\n",
+                "export BACKEND_BASE_URL=http://",
+                { "Fn::GetAtt": ["BackendLoadBalancer", "DNSName"] },
+                "\n",
+                "envsubst < /var/www/html/assets/env.sample.js > /var/www/html/assets/env.js\n",
+                "sudo systemctl restart nginx\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+
+    "FrontendLoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Subnets": ["subnet-2bfb6c4f", "subnet-c2f25afd", "subnet-432a9408"],
+        "SecurityGroups": [{ "Ref": "FrontendLoadBalancerSecurityGroup" }]
+      }
+    },
+
+    "FrontendALBListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": { "Ref": "FrontendALBTargetGroup" }
+          }
+        ],
+        "LoadBalancerArn": { "Ref": "FrontendLoadBalancer" },
+        "Port": "80",
+        "Protocol": "HTTP"
+      }
+    },
+
+    "FrontendALBTargetGroup": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "HealthCheckIntervalSeconds": 30,
+        "HealthCheckTimeoutSeconds": 25,
+        "HealthyThresholdCount": 3,
+        "Port": 80,
+        "Protocol": "HTTP",
+        "UnhealthyThresholdCount": 5,
+        "VpcId": "vpc-83a213fb"
+      }
+    },
+
+    "FrontendLoadBalancerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Enable HTTP access on port 80",
+        "VpcId": "vpc-83a213fb",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    
+    "BackendAutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "VPCZoneIdentifier": [
+          "subnet-2bfb6c4f",
+          "subnet-c2f25afd",
+          "subnet-432a9408"
+        ],
+        "LaunchConfigurationName": { "Ref": "BackendLaunchConfig" },
+        "MinSize": "1",
+        "MaxSize": "2",
+        "DesiredCapacity": "1",
+        "TargetGroupARNs": [{ "Ref": "BackendALBTargetGroup" }]
+      },
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT45M"
+        }
+      },
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": "1",
+          "MaxBatchSize": "1",
+          "PauseTime": "PT15M",
+          "WaitOnResourceSignals": "true"
+        }
+      }
+    },
+    "BackendScaleOutPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": { "Ref": "BackendAutoScalingGroup" },
+        "Cooldown": "120",
+        "ScalingAdjustment": "1"
+      }
+    },
+
+    "BackendCPUAlarmHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "70",
+        "AlarmDescription": "Alarm if average CPU > 70% for 1 period of 60 seconds",
+        "Period": "60",
+        "AlarmActions": [{ "Ref": "BackendScaleOutPolicy" }],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": { "Ref": "BackendAutoScalingGroup" }
+          }
+        ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+
+    "BackendScaleInPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": { "Ref": "BackendAutoScalingGroup" },
+        "Cooldown": "120",
+        "ScalingAdjustment": "-1"
+      }
+    },
+
+    "BackendCPUAlarmLow": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "2",
+        "Statistic": "Average",
+        "Threshold": "20",
+        "AlarmDescription": "Alarm if average CPU < 20% for 2 periods of 60 seconds",
+        "Period": "60",
+        "AlarmActions": [{ "Ref": "BackendScaleInPolicy" }],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": { "Ref": "BackendAutoScalingGroup" }
+          }
+        ],
+        "ComparisonOperator": "LessThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+
+    "BackendLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": "true",
+        "ImageId": {
+          "Fn::FindInMap": [
+            "BackendAWSRegionArch2AMI",
+            { "Ref": "AWS::Region" },
+            { "Fn::FindInMap": ["AWSInstanceType2Arch", "t3.small", "Arch"] }
+          ]
+        },
+        "SecurityGroups": [{ "Ref": "MainEC2SecurityGroup" }],
+        "KeyName": { "Ref": "KeyPairName" },
+        "InstanceType": "t3.small",
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+
+    "BackendLoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Subnets": ["subnet-2bfb6c4f", "subnet-c2f25afd", "subnet-432a9408"],
+        "SecurityGroups": [{ "Ref": "BackendLoadBalancerSecurityGroup" }]
+      }
+    },
+
+    "BackendALBListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": { "Ref": "BackendALBTargetGroup" }
+          }
+        ],
+        "LoadBalancerArn": { "Ref": "BackendLoadBalancer" },
+        "Port": "80",
+        "Protocol": "HTTP"
+      }
+    },
+
+    "BackendALBTargetGroup": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "HealthCheckIntervalSeconds": 30,
+        "HealthCheckTimeoutSeconds": 25,
+        "HealthyThresholdCount": 3,
+        "Port": 80,
+        "Protocol": "HTTP",
+        "UnhealthyThresholdCount": 5,
+        "VpcId": "vpc-83a213fb"
+      }
+    },
+
+    "BackendLoadBalancerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Enable HTTP access on port 80",
+        "VpcId": "vpc-83a213fb",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    }
+  }
+}
