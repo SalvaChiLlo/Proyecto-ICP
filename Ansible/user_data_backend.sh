@@ -3,10 +3,7 @@
 mkdir -p /home/ubuntu/app
 cd /home/ubuntu/app
 
-sudo apt -y update
-sudo apt -y upgrade
-sudo apt -y install git
-sudo curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
 
 export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
@@ -43,7 +40,7 @@ Type=simple
 Restart=always
 RestartSec=1
 User=ubuntu
-ExecStart=/var/app/execute_backend.sh
+ExecStart=/bin/bash /var/app/execute_backend.sh
 
 [Install]
 WantedBy=multi-user.target

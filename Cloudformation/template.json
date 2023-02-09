@@ -16,11 +16,11 @@
     },
 
     "FrontendAWSRegionArch2AMI": {
-      "us-east-1": { "HVM64": "ami-054371e5383487ae0" }
+      "us-east-1": { "HVM64": "ami-0d3e1a562807483e5" }
     },
 
     "BackendAWSRegionArch2AMI": {
-      "us-east-1": { "HVM64": "ami-081efcef07b526eb9" }
+      "us-east-1": { "HVM64": "ami-0be9612d04a3474de" }
     }
   },
 
@@ -159,7 +159,7 @@
                 "#!/bin/bash\n",
                 "export BACKEND_BASE_URL=http://",
                 { "Fn::GetAtt": ["BackendLoadBalancer", "DNSName"] },
-                "\n",
+                ":8080\n",
                 "envsubst < /var/www/html/assets/env.sample.js > /var/www/html/assets/env.js\n",
                 "sudo systemctl restart nginx\n"
               ]
@@ -335,6 +335,28 @@
       }
     },
 
+    "BackendEC2SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Open ports 80 and 22",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "8080",
+            "ToPort": "8080",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "VpcId": "vpc-83a213fb"
+      }
+    },
+
     "BackendLaunchConfig": {
       "Type": "AWS::AutoScaling::LaunchConfiguration",
       "Properties": {
@@ -346,7 +368,7 @@
             { "Fn::FindInMap": ["AWSInstanceType2Arch", "t3.small", "Arch"] }
           ]
         },
-        "SecurityGroups": [{ "Ref": "MainEC2SecurityGroup" }],
+        "SecurityGroups": [{ "Ref": "BackendEC2SecurityGroup" }],
         "KeyName": { "Ref": "KeyPairName" },
         "InstanceType": "t3.small",
         "UserData": {
@@ -358,10 +380,10 @@
                 "sudo echo \"",
                 "#!/bin/bash\n",
                 "NODE_ENV=production\n",
-                "PORT=80\n",
+                "PORT=8080\n",
                 "IP=0.0.0.0\n",
                 "PRODUCTION_IP=0.0.0.0\n",
-                "PRODUCTION_PORT=80\n",
+                "PRODUCTION_PORT=8080\n",
                 "PRODUCTION_USERNAME=awsuser\n",
                 "PRODUCTION_PASSWORD=cloudvlc\n",
                 "PRODUCTION_DATABASE=cellar\n",
@@ -396,7 +418,7 @@
           }
         ],
         "LoadBalancerArn": { "Ref": "BackendLoadBalancer" },
-        "Port": "80",
+        "Port": "8080",
         "Protocol": "HTTP"
       }
     },
@@ -407,7 +429,8 @@
         "HealthCheckIntervalSeconds": 30,
         "HealthCheckTimeoutSeconds": 25,
         "HealthyThresholdCount": 3,
-        "Port": 80,
+        "HealthCheckPort": 8080,
+        "Port": 8080,
         "Protocol": "HTTP",
         "UnhealthyThresholdCount": 5,
         "VpcId": "vpc-83a213fb"
@@ -422,16 +445,16 @@
         "SecurityGroupIngress": [
           {
             "IpProtocol": "tcp",
-            "FromPort": "80",
-            "ToPort": "80",
+            "FromPort": "8080",
+            "ToPort": "8080",
             "CidrIp": "0.0.0.0/0"
           }
         ],
         "SecurityGroupEgress": [
           {
             "IpProtocol": "tcp",
-            "FromPort": "80",
-            "ToPort": "80",
+            "FromPort": "8080",
+            "ToPort": "8080",
             "CidrIp": "0.0.0.0/0"
           }
         ]

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-STACK_NAME=proyecto-icp-$ID
+STACK_NAME=proyecto-icp-$ID-1
 TEMPLATE_FILE=template.json
 
 case $1 in
