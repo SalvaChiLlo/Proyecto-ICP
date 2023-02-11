@@ -35,7 +35,7 @@ Si se quiere obtener información de la infraestructura:
 ./template.sh describe
 ```
 
-Si se quiere obtener una estimación de costes:
+~~Si se quiere obtener una estimación de costes:~~
 ```
 ./template.sh estimate
 ```
