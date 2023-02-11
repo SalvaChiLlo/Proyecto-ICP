@@ -24,6 +24,6 @@ rm -f $ANSIBLE_LOCAL_INVENTORY_FILE
 echo "[local]" >> $ANSIBLE_LOCAL_INVENTORY_FILE
 echo "localhost ansible_python_interpreter=/usr/bin/python3" >> $ANSIBLE_LOCAL_INVENTORY_FILE
 export ANSIBLE_HOST_KEY_CHECKING=False
-# ansible-playbook self-submit-ansible-slaves.yml -i $ANSIBLE_LOCAL_INVENTORY_FILE --extra-vars "total=$TOTAL_NODES keypair=$KEYPAIR security_group=$SECURITY_GROUP user_name=$USER_NAME user_script=$FRONTEND_USER_DATA image_name=frontend-bibliotecas"
+ansible-playbook self-submit-ansible-slaves.yml -i $ANSIBLE_LOCAL_INVENTORY_FILE --extra-vars "total=$TOTAL_NODES keypair=$KEYPAIR security_group=$SECURITY_GROUP user_name=$USER_NAME user_script=$FRONTEND_USER_DATA image_name=frontend-bibliotecas"
 ansible-playbook self-submit-ansible-slaves.yml -i $ANSIBLE_LOCAL_INVENTORY_FILE --extra-vars "total=$TOTAL_NODES keypair=$KEYPAIR security_group=$SECURITY_GROUP user_name=$USER_NAME user_script=$BACKEND_USER_DATA image_name=backend-bibliotecas"
 
